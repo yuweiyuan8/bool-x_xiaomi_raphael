@@ -83,7 +83,6 @@ void mhi_reg_write_work(struct work_struct *w)
 
 	if (msm_pcie_prevent_l1(pci_dev))
 		return;
-
 	while (info->valid) {
 		if (!mhi_is_active(mhi_cntrl->mhi_dev))
 			break;
