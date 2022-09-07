@@ -408,7 +408,7 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq)
 
 		scm_data[0] = level;
 		scm_data[1] = priv->bin.total_time;
-		if (refresh_rate > 60 && time_before(jiffies, last_input_time + msecs_to_jiffies(highref_input_dur)))
+		if (refresh_rate > 60)
 			scm_data[2] = priv->bin.busy_time * highref_multi / 100;
 		else
 			scm_data[2] = priv->bin.busy_time * lowref_multi / 100;
