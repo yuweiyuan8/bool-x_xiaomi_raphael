@@ -75,7 +75,6 @@ static unsigned int get_max_boost_freq(struct cpufreq_policy *policy)
 extern int kp_active_mode(void);
 static unsigned int get_min_freq(struct cpufreq_policy *policy)
 {
-	struct boost_drv *b = &boost_drv_g;
 	unsigned int freq;
 	if (cpumask_test_cpu(policy->cpu, cpu_lp_mask))
 		freq = CONFIG_MIN_FREQ_LP;
@@ -86,20 +85,6 @@ static unsigned int get_min_freq(struct cpufreq_policy *policy)
 		else if (cpumask_test_cpu(policy->cpu, cpu_prime_mask))
 			freq = CONFIG_MIN_FREQ_PRIME;
 	}
-
-	return max(freq, policy->cpuinfo.min_freq);
-}
-
-static unsigned int get_idle_freq(struct cpufreq_policy *policy)
-{
-	unsigned int freq;
-
-	if (cpumask_test_cpu(policy->cpu, cpu_lp_mask))
-		freq = CONFIG_IDLE_MIN_FREQ_LP;
-	else if (cpumask_test_cpu(policy->cpu, cpu_perf_mask))
-		freq = CONFIG_IDLE_MIN_FREQ_PERF;
-	else
-		freq = CONFIG_IDLE_MIN_FREQ_PRIME;
 
 	return max(freq, policy->cpuinfo.min_freq);
 }
