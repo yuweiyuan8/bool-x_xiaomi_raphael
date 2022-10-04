@@ -372,7 +372,6 @@ LZ4_decompress_generic(const char *const src, char *const dst, int srcSize,
 		unsigned token;
 		size_t length;
 
-			 srcSize, outputSize);
 
 		/* Special cases */
 		assert(lowPrefix <= op);
