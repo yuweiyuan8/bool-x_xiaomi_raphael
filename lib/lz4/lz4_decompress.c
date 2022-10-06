@@ -372,6 +372,7 @@ LZ4_decompress_generic(const char *const src, char *const dst, int srcSize,
 		unsigned token;
 		size_t length;
 
+		DEBUGLOG(5, "LZ4_decompress_generic (srcSize:%i, dstSize:%i)",
 			 srcSize, outputSize);
 
 		/* Special cases */
