@@ -1520,7 +1520,7 @@ int adreno_clear_pending_transactions(struct kgsl_device *device)
 	}
 	return ret;
 }
-
+extern int kp_active_mode(void);
 static int adreno_init(struct kgsl_device *device)
 {
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
@@ -1618,9 +1618,11 @@ static int adreno_init(struct kgsl_device *device)
 	}
 
 	place_marker("M - DRIVER ADRENO Ready");
-	if (adreno_is_a640v1(adreno_dev) || device->pwrscale.devfreqptr->max_freq == 810000000) {
-		if (585000000 >= device->pwrscale.devfreqptr->min_freq)
-			device->pwrscale.devfreqptr->max_freq = 585000000;
+	if (kp_active_mode() == 2 || kp_active_mode() == 1 || kp_active_mode() == 0) {
+		if (adreno_is_a640v1(adreno_dev) || device->pwrscale.devfreqptr->max_freq == 810000000) {
+			if (585000000 >= device->pwrscale.devfreqptr->min_freq)
+				device->pwrscale.devfreqptr->max_freq = 585000000;
+		}
 	}
 
 	return 0;
