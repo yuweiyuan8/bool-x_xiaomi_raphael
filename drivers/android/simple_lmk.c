@@ -365,7 +365,7 @@ static int msm_drm_notifier_callback(struct notifier_block *self,
 	blank = evdata->data;
 	switch (*blank) {
 	case MSM_DRM_BLANK_POWERDOWN:
-	case MSM_DRM_BLANK_LP:
+	case MSM_DRM_BLANK_LP1 || MSM_DRM_BLANK_LP2:
 		if (!screen_on)
 			break;
 		screen_on = false;
@@ -405,7 +405,6 @@ static int simple_lmk_init_set(const char *val, const struct kernel_param *kp)
 		BUG_ON(IS_ERR(thread));
 		BUG_ON(vmpressure_notifier_register(&vmpressure_notif));
 		BUG_ON(msm_drm_register_client(&fb_notifier_block));
-                sched_setscheduler(thread, SCHED_FIFO, &param);
 	}
 
 	si_meminfo(&i);
