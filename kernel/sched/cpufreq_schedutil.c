@@ -23,14 +23,25 @@
 
 #define SUGOV_KTHREAD_PRIORITY	50
 
-static unsigned int default_efficient_freq_lp[] = {CONFIG_SCHEDUTIL_DEFAULT_EFFICIENT_FREQ_LP};
-static u64 default_up_delay_lp[] = {CONFIG_SCHEDUTIL_DEFAULT_UP_DELAY_LP * NSEC_PER_MSEC};
+static unsigned int default_adaptive_high_freq_lp[] = {CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_HIGH_FREQ_LP_STEP1,CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_HIGH_FREQ_LP_STEP2,CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_HIGH_FREQ_LP_STEP3};
+static u64 default_up_delay_lp[] = {CONFIG_SCHEDUTIL_DEFAULT_UP_DELAY_LP_STEP1 * NSEC_PER_MSEC,CONFIG_SCHEDUTIL_DEFAULT_UP_DELAY_LP_STEP2 * NSEC_PER_MSEC,CONFIG_SCHEDUTIL_DEFAULT_UP_DELAY_LP_STEP3 * NSEC_PER_MSEC};
 
-static unsigned int default_efficient_freq_hp[] = {CONFIG_SCHEDUTIL_DEFAULT_EFFICIENT_FREQ_HP};
-static u64 default_up_delay_hp[] = {CONFIG_SCHEDUTIL_DEFAULT_UP_DELAY_HP * NSEC_PER_MSEC};
+static unsigned int default_adaptive_high_freq_hp[] = {CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_HIGH_FREQ_HP_STEP1,CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_HIGH_FREQ_HP_STEP2,CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_HIGH_FREQ_HP_STEP3};
+static u64 default_up_delay_hp[] = {CONFIG_SCHEDUTIL_DEFAULT_UP_DELAY_HP_STEP1 * NSEC_PER_MSEC,CONFIG_SCHEDUTIL_DEFAULT_UP_DELAY_HP_STEP2 * NSEC_PER_MSEC,CONFIG_SCHEDUTIL_DEFAULT_UP_DELAY_HP_STEP3 * NSEC_PER_MSEC};
 
-static unsigned int default_efficient_freq_pr[] = {CONFIG_SCHEDUTIL_DEFAULT_EFFICIENT_FREQ_PR};
-static u64 default_up_delay_pr[] = {CONFIG_SCHEDUTIL_DEFAULT_UP_DELAY_PR * NSEC_PER_MSEC};
+static unsigned int default_adaptive_high_freq_pr[] = {CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_HIGH_FREQ_PR_STEP1,CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_HIGH_FREQ_PR_STEP2,CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_HIGH_FREQ_PR_STEP3};
+static u64 default_up_delay_pr[] = {CONFIG_SCHEDUTIL_DEFAULT_UP_DELAY_PR_STEP1 * NSEC_PER_MSEC,CONFIG_SCHEDUTIL_DEFAULT_UP_DELAY_PR_STEP2 * NSEC_PER_MSEC,CONFIG_SCHEDUTIL_DEFAULT_UP_DELAY_PR_STEP3 * NSEC_PER_MSEC};
+
+
+static unsigned int default_adaptive_low_freq_lp[] = {CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_LOW_FREQ_LP_STEP1,CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_LOW_FREQ_LP_STEP2,CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_LOW_FREQ_LP_STEP3};
+static u64 default_down_delay_lp[] = {CONFIG_SCHEDUTIL_DEFAULT_DOWN_DELAY_LP_STEP1 * NSEC_PER_MSEC,CONFIG_SCHEDUTIL_DEFAULT_DOWN_DELAY_LP_STEP2 * NSEC_PER_MSEC,CONFIG_SCHEDUTIL_DEFAULT_DOWN_DELAY_LP_STEP3 * NSEC_PER_MSEC};
+
+static unsigned int default_adaptive_low_freq_hp[] = {CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_LOW_FREQ_HP_STEP1,CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_LOW_FREQ_HP_STEP2,CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_LOW_FREQ_HP_STEP3};
+static u64 default_down_delay_hp[] = {CONFIG_SCHEDUTIL_DEFAULT_DOWN_DELAY_HP_STEP1 * NSEC_PER_MSEC,CONFIG_SCHEDUTIL_DEFAULT_DOWN_DELAY_HP_STEP2 * NSEC_PER_MSEC,CONFIG_SCHEDUTIL_DEFAULT_DOWN_DELAY_HP_STEP3 * NSEC_PER_MSEC};
+
+static unsigned int default_adaptive_low_freq_pr[] = {CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_LOW_FREQ_PR_STEP1,CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_LOW_FREQ_PR_STEP2,CONFIG_SCHEDUTIL_DEFAULT_ADAPTIVE_LOW_FREQ_PR_STEP3};
+static u64 default_down_delay_pr[] = {CONFIG_SCHEDUTIL_DEFAULT_DOWN_DELAY_PR_STEP1 * NSEC_PER_MSEC,CONFIG_SCHEDUTIL_DEFAULT_DOWN_DELAY_PR_STEP2 * NSEC_PER_MSEC,CONFIG_SCHEDUTIL_DEFAULT_DOWN_DELAY_PR_STEP3 * NSEC_PER_MSEC};
+
 
 static unsigned int default_hispeed_freq_lp = CONFIG_SCHEDUTIL_DEFAULT_HIGHSPEED_FREQ_LP;
 
@@ -42,15 +53,24 @@ struct sugov_tunables {
 	struct gov_attr_set attr_set;
 	unsigned int		up_rate_limit_us;
 	unsigned int		down_rate_limit_us;
-	unsigned int hispeed_load;
-	unsigned int hispeed_freq;
-	unsigned int 		*efficient_freq;
-	int 			nefficient_freq;
-	u64 			*up_delay;
-	int 			nup_delay;
-	int 			current_step;
-	unsigned int rtg_boost_freq;
-	bool pl;
+	unsigned int        hispeed_load;
+	unsigned int        hispeed_freq;
+	unsigned int 		*adaptive_high_freq;
+	int 			    nadaptive_high_freq;
+	unsigned int 		*adaptive_low_freq;
+	int 			    nadaptive_low_freq;
+	u64 			    *up_delay;
+	int 			    nup_delay;
+	u64 			*down_delay;
+	int 			ndown_delay;
+	int 			current_step_up;
+	int 			current_step_down;
+	unsigned int        rtg_boost_freq;
+	bool                pl;
+	bool			do_limit_up_freq;
+	bool			do_limit_down_freq;
+	bool limit_freq;
+	bool limit_freq_userspace_ctl;
 };
 
 struct sugov_policy {
@@ -72,6 +92,7 @@ struct sugov_policy {
 	unsigned int next_freq;
 	unsigned int cached_raw_freq;
 	u64		first_hp_request_time;
+	u64 first_lp_request_time;
 	unsigned long hispeed_util;
 	unsigned long rtg_boost_util;
 	unsigned long max;
@@ -193,12 +214,23 @@ static inline bool conservative_pl(void)
 #endif
 }
 
-static inline int match_nearest_efficient_step(int freq, int maxstep, int *freq_table)
+static inline int match_nearest_up_step(int freq, int maxstep, int *freq_table)
 {
 	int i;
 
 	for (i=0; i<maxstep; i++) {
 		if (freq_table[i] >= freq)
+			break;
+	}
+
+	return i;
+}
+static inline int match_nearest_down_step(int freq, int maxstep, int *freq_table)
+{
+	int i;
+
+	for (i=0; i<maxstep; i++) {
+		if (freq_table[i] <= freq)
 			break;
 	}
 
@@ -210,30 +242,69 @@ static inline void do_freq_limit(struct sugov_policy *sg_policy, unsigned int *f
 {
 	if (kp_active_mode() == 3)
 	{
-		return;
+		if(sg_policy->tunables->do_limit_up_freq && !sg_policy->tunables->limit_freq_userspace_ctl)
+			sg_policy->tunables->do_limit_up_freq = false;
+		if(!sg_policy->tunables->do_limit_down_freq && !sg_policy->tunables->limit_freq_userspace_ctl)
+			sg_policy->tunables->do_limit_down_freq = true;
 	}
+	else 
+	{
+		if(!(sg_policy->tunables->do_limit_up_freq || sg_policy->tunables->limit_freq_userspace_ctl))
+				sg_policy->tunables->do_limit_up_freq = true;
+		if(!(!sg_policy->tunables->do_limit_down_freq || sg_policy->tunables->limit_freq_userspace_ctl))
+				sg_policy->tunables->do_limit_down_freq = false;
+	}
+	if (sg_policy->tunables->do_limit_up_freq)
+	{
+		if (*freq > sg_policy->tunables->adaptive_high_freq[sg_policy->tunables->current_step_up] && !sg_policy->first_hp_request_time) {
+			/* First request */
+			*freq = sg_policy->tunables->adaptive_high_freq[sg_policy->tunables->current_step_up];
+			sg_policy->first_hp_request_time = time;
+		} else if (*freq < sg_policy->tunables->adaptive_high_freq[sg_policy->tunables->current_step_up]) {
+			/* It's already under current adaptive high frequency */
+			/* Goto a lower one */
+			sg_policy->tunables->current_step_up = match_nearest_up_step(*freq, sg_policy->tunables->nadaptive_high_freq, sg_policy->tunables->adaptive_high_freq);
+			sg_policy->first_hp_request_time = 0;
+		} else if ((sg_policy->first_hp_request_time 
+			&& time < sg_policy->first_hp_request_time + sg_policy->tunables->up_delay[sg_policy->tunables->current_step_up])){
+			/* Restrict it */
+			*freq = sg_policy->tunables->adaptive_high_freq[sg_policy->tunables->current_step_up];
+		} else if (sg_policy->tunables->current_step_up + 1 <= sg_policy->tunables->nadaptive_high_freq - 1
+				&& sg_policy->tunables->current_step_up + 1 <= sg_policy->tunables->nup_delay - 1) {
+		/* Unlock a higher adaptive high frequency */
+			sg_policy->tunables->current_step_up++;
+			sg_policy->first_hp_request_time = time;
+			if (*freq > sg_policy->tunables->adaptive_high_freq[sg_policy->tunables->current_step_up])
+				*freq = sg_policy->tunables->adaptive_high_freq[sg_policy->tunables->current_step_up];
+		}		
+	}
+	if (sg_policy->tunables->do_limit_down_freq)
+	{
+		if (*freq < sg_policy->tunables->adaptive_low_freq[sg_policy->tunables->current_step_down] && !sg_policy->first_lp_request_time) {
+			/* First request */
+			*freq = sg_policy->tunables->adaptive_low_freq[sg_policy->tunables->current_step_down];
+			sg_policy->first_lp_request_time = time;
+		} else if (*freq > sg_policy->tunables->adaptive_low_freq[sg_policy->tunables->current_step_down]) {
+			/* It's already under current adaptive low frequency */
+			/* Goto a higher one */
+			sg_policy->tunables->current_step_down = match_nearest_down_step(*freq, sg_policy->tunables->nadaptive_low_freq, sg_policy->tunables->adaptive_low_freq);
+			sg_policy->first_lp_request_time = 0;
+		} else if ((sg_policy->first_lp_request_time 
+			&& time < sg_policy->first_lp_request_time + sg_policy->tunables->down_delay[sg_policy->tunables->current_step_down])){
+			/* Restrict it */
+			*freq = sg_policy->tunables->adaptive_low_freq[sg_policy->tunables->current_step_down];
+		} else if (sg_policy->tunables->current_step_down + 1 <= sg_policy->tunables->nadaptive_low_freq - 1
+				&& sg_policy->tunables->current_step_down + 1 <= sg_policy->tunables->ndown_delay - 1) {
+		/* Unlock a higher adaptive low frequency */
+			sg_policy->tunables->current_step_down++;
+			sg_policy->first_lp_request_time = time;
+			if (*freq > sg_policy->tunables->adaptive_low_freq[sg_policy->tunables->current_step_down])
+				*freq = sg_policy->tunables->adaptive_low_freq[sg_policy->tunables->current_step_down];
+		}
+	
+	}
+	
 
-	if (*freq > sg_policy->tunables->efficient_freq[sg_policy->tunables->current_step] && !sg_policy->first_hp_request_time) {
-		/* First request */
-		*freq = sg_policy->tunables->efficient_freq[sg_policy->tunables->current_step];
-		sg_policy->first_hp_request_time = time;
-	} else if (*freq < sg_policy->tunables->efficient_freq[sg_policy->tunables->current_step]) {
-		/* It's already under current efficient frequency */
-		/* Goto a lower one */
-		sg_policy->tunables->current_step = match_nearest_efficient_step(*freq, sg_policy->tunables->nefficient_freq, sg_policy->tunables->efficient_freq);
-		sg_policy->first_hp_request_time = 0;
-	} else if ((sg_policy->first_hp_request_time 
-		&& time < sg_policy->first_hp_request_time + sg_policy->tunables->up_delay[sg_policy->tunables->current_step])){
-		/* Restrict it */
-		*freq = sg_policy->tunables->efficient_freq[sg_policy->tunables->current_step];
-	} else if (sg_policy->tunables->current_step + 1 <= sg_policy->tunables->nefficient_freq - 1
-			&& sg_policy->tunables->current_step + 1 <= sg_policy->tunables->nup_delay - 1) {
-		/* Unlock a higher efficient frequency */
-		sg_policy->tunables->current_step++;
-		sg_policy->first_hp_request_time = time;
-		if (*freq > sg_policy->tunables->efficient_freq[sg_policy->tunables->current_step])
-			*freq = sg_policy->tunables->efficient_freq[sg_policy->tunables->current_step];
-	}
 }
 
 static unsigned long freq_to_util(struct sugov_policy *sg_policy,
@@ -1001,14 +1072,84 @@ static ssize_t pl_store(struct gov_attr_set *attr_set, const char *buf,
 	return count;
 }
 
-static ssize_t efficient_freq_show(struct gov_attr_set *attr_set, char *buf)
+
+static ssize_t do_limit_up_freq_show(struct gov_attr_set *attr_set, char *buf)
+{
+	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
+
+	return scnprintf(buf, PAGE_SIZE, "%u\n", tunables->do_limit_up_freq);
+}
+
+static ssize_t do_limit_up_freq_store(struct gov_attr_set *attr_set, const char *buf,
+				   size_t count)
+{
+	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
+
+	if (kstrtobool(buf, &tunables->do_limit_up_freq))
+		return -EINVAL;
+
+	return count;
+}
+
+static ssize_t do_limit_down_freq_show(struct gov_attr_set *attr_set, char *buf)
+{
+	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
+
+	return scnprintf(buf, PAGE_SIZE, "%u\n", tunables->do_limit_down_freq);
+}
+
+static ssize_t do_limit_down_freq_store(struct gov_attr_set *attr_set, const char *buf,
+				   size_t count)
+{
+	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
+
+	if (kstrtobool(buf, &tunables->do_limit_down_freq))
+		return -EINVAL;
+
+	return count;
+}
+
+static ssize_t limit_freq_userspace_ctl_show(struct gov_attr_set *attr_set, char *buf)
+{
+	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
+
+	return scnprintf(buf, PAGE_SIZE, "%u\n", tunables->limit_freq_userspace_ctl);
+}
+
+static ssize_t limit_freq_userspace_ctl_store(struct gov_attr_set *attr_set, const char *buf,
+				   size_t count)
+{
+	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
+
+	if (kstrtobool(buf, &tunables->limit_freq_userspace_ctl))
+		return -EINVAL;
+
+	return count;
+}
+
+static ssize_t adaptive_high_freq_show(struct gov_attr_set *attr_set, char *buf)
 {
 	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
 	int i;
 	ssize_t ret = 0;
 
-	for (i = 0; i < tunables->nefficient_freq; i++)
-		ret += sprintf(buf + ret, "%llu%s", tunables->efficient_freq[i], " ");
+	for (i = 0; i < tunables->nadaptive_high_freq; i++)
+		ret += sprintf(buf + ret, "%llu%s", tunables->adaptive_high_freq[i], " ");
+
+	sprintf(buf + ret - 1, "\n");
+
+	return ret;
+}
+
+
+static ssize_t adaptive_low_freq_show(struct gov_attr_set *attr_set, char *buf)
+{
+	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
+	int i;
+	ssize_t ret = 0;
+
+	for (i = 0; i < tunables->nadaptive_low_freq; i++)
+		ret += sprintf(buf + ret, "%llu%s", tunables->adaptive_low_freq[i], " ");
 
 	sprintf(buf + ret - 1, "\n");
 
@@ -1029,23 +1170,61 @@ static ssize_t up_delay_show(struct gov_attr_set *attr_set, char *buf)
 	return ret;
 }
 
-static ssize_t efficient_freq_store(struct gov_attr_set *attr_set,
+static ssize_t down_delay_show(struct gov_attr_set *attr_set, char *buf)
+{
+	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
+	int i;
+	ssize_t ret = 0;
+
+	for (i = 0; i < tunables->ndown_delay; i++)
+		ret += sprintf(buf + ret, "%u%s", tunables->down_delay[i] / NSEC_PER_MSEC, " ");
+
+	sprintf(buf + ret - 1, "\n");
+
+	return ret;
+}
+
+
+static ssize_t adaptive_high_freq_store(struct gov_attr_set *attr_set,
 					const char *buf, size_t count)
 {
 	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
 	int new_num;
-	unsigned int *new_efficient_freq = NULL, *old;
+	unsigned int *new_adaptive_high_freq = NULL, *old;
 
-	new_efficient_freq = resolve_data_freq(buf, &new_num, count);
+	new_adaptive_high_freq = resolve_data_freq(buf, &new_num, count);
 
-	if (new_efficient_freq) {
-	    old = tunables->efficient_freq;
-	    tunables->efficient_freq = new_efficient_freq;
-	    tunables->nefficient_freq = new_num;
-	    tunables->current_step = 0;
-	    if (old != default_efficient_freq_lp
-	     && old != default_efficient_freq_hp
-	     && old != default_efficient_freq_pr)
+	if (new_adaptive_high_freq) {
+	    old = tunables->adaptive_high_freq;
+	    tunables->adaptive_high_freq = new_adaptive_high_freq;
+	    tunables->nadaptive_high_freq = new_num;
+	    tunables->current_step_up = 0;
+	    if (old != default_adaptive_high_freq_lp
+	     && old != default_adaptive_high_freq_hp
+	     && old != default_adaptive_high_freq_pr)
+	        kfree(old);
+	}
+
+	return count;
+}
+
+static ssize_t adaptive_low_freq_store(struct gov_attr_set *attr_set,
+					const char *buf, size_t count)
+{
+	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
+	int new_num;
+	unsigned int *new_adaptive_low_freq = NULL, *old;
+
+	new_adaptive_low_freq = resolve_data_freq(buf, &new_num, count);
+
+	if (new_adaptive_low_freq) {
+	    old = tunables->adaptive_low_freq;
+	    tunables->adaptive_low_freq = new_adaptive_low_freq;
+	    tunables->nadaptive_low_freq = new_num;
+	    tunables->current_step_down = 0;
+	    if (old != default_adaptive_low_freq_lp
+	     && old != default_adaptive_low_freq_hp
+	     && old != default_adaptive_low_freq_pr)
 	        kfree(old);
 	}
 
@@ -1065,10 +1244,33 @@ static ssize_t up_delay_store(struct gov_attr_set *attr_set,
 	    old = tunables->up_delay;
 	    tunables->up_delay = new_up_delay;
 	    tunables->nup_delay = new_num;
-	    tunables->current_step = 0;
+	    tunables->current_step_up = 0;
 	    if (old != default_up_delay_lp
 	     && old != default_up_delay_hp
 	     && old != default_up_delay_pr)
+	        kfree(old);
+	}
+
+	return count;
+}
+
+static ssize_t down_delay_store(struct gov_attr_set *attr_set,
+					const char *buf, size_t count)
+{
+	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
+	int new_num;
+	u64 *new_down_delay = NULL, *old;
+
+	new_down_delay = resolve_data_delay(buf, &new_num, count);
+
+	if (new_down_delay) {
+	    old = tunables->down_delay;
+	    tunables->down_delay = new_down_delay;
+	    tunables->ndown_delay = new_num;
+	    tunables->current_step_down = 0;
+	    if (old != default_down_delay_lp
+	     && old != default_down_delay_hp
+	     && old != default_down_delay_pr)
 	        kfree(old);
 	}
 
@@ -1081,8 +1283,13 @@ static struct governor_attr hispeed_load = __ATTR_RW(hispeed_load);
 static struct governor_attr hispeed_freq = __ATTR_RW(hispeed_freq);
 static struct governor_attr rtg_boost_freq = __ATTR_RW(rtg_boost_freq);
 static struct governor_attr pl = __ATTR_RW(pl);
-static struct governor_attr efficient_freq = __ATTR_RW(efficient_freq);
+static struct governor_attr adaptive_high_freq = __ATTR_RW(adaptive_high_freq);
+static struct governor_attr adaptive_low_freq = __ATTR_RW(adaptive_low_freq);
 static struct governor_attr up_delay = __ATTR_RW(up_delay);
+static struct governor_attr down_delay = __ATTR_RW(down_delay);
+static struct governor_attr do_limit_up_freq = __ATTR_RW(do_limit_up_freq);
+static struct governor_attr do_limit_down_freq = __ATTR_RW(do_limit_down_freq);
+static struct governor_attr limit_freq_userspace_ctl = __ATTR_RW(limit_freq_userspace_ctl);
 
 static struct attribute *sugov_attributes[] = {
 	&up_rate_limit_us.attr,
@@ -1091,8 +1298,10 @@ static struct attribute *sugov_attributes[] = {
 	&hispeed_freq.attr,
 	&rtg_boost_freq.attr,
 	&pl.attr,
-	&efficient_freq.attr,
+	&adaptive_high_freq.attr,
+	&adaptive_low_freq.attr,
 	&up_delay.attr,
+	&limit_freq_userspace_ctl.attr,
 	NULL
 };
 
@@ -1221,10 +1430,17 @@ static void sugov_tunables_save(struct cpufreq_policy *policy,
 	cached->hispeed_freq = tunables->hispeed_freq;
 	cached->up_rate_limit_us = tunables->up_rate_limit_us;
 	cached->down_rate_limit_us = tunables->down_rate_limit_us;
-	cached->efficient_freq = tunables->efficient_freq;
+	cached->adaptive_high_freq = tunables->adaptive_high_freq;
+	cached->nadaptive_high_freq = tunables->nadaptive_high_freq;
+	cached->adaptive_low_freq = tunables->adaptive_low_freq;
+	cached->nadaptive_low_freq = tunables->nadaptive_low_freq;
 	cached->up_delay = tunables->up_delay;
-	cached->nefficient_freq = tunables->nefficient_freq;
+	cached->down_delay = tunables->down_delay;
 	cached->nup_delay = tunables->nup_delay;
+	cached->ndown_delay = tunables->ndown_delay;
+	cached->do_limit_up_freq = tunables->do_limit_up_freq;
+	cached->do_limit_down_freq = tunables->do_limit_down_freq;
+	cached->limit_freq_userspace_ctl = tunables->limit_freq_userspace_ctl;
 }
 
 static void sugov_clear_global_tunables(void)
@@ -1249,10 +1465,14 @@ static void sugov_tunables_restore(struct cpufreq_policy *policy)
 	tunables->up_rate_limit_us = cached->up_rate_limit_us;
 	tunables->down_rate_limit_us = cached->down_rate_limit_us;
 	update_min_rate_limit_ns(sg_policy);
-	cached->efficient_freq = tunables->efficient_freq;
-	cached->up_delay = tunables->up_delay;
-	cached->nefficient_freq = tunables->nefficient_freq;
-	cached->nup_delay = tunables->nup_delay;
+	tunables->adaptive_high_freq = cached->adaptive_high_freq;
+	tunables->nadaptive_high_freq = cached->nadaptive_high_freq;
+	tunables->adaptive_low_freq = cached->adaptive_low_freq;
+	tunables->nadaptive_low_freq = cached->nadaptive_low_freq;
+	tunables->nup_delay = cached->nup_delay;
+	tunables->do_limit_up_freq = cached->do_limit_up_freq;
+	tunables->do_limit_down_freq = cached->do_limit_down_freq;
+	tunables->limit_freq_userspace_ctl = cached->limit_freq_userspace_ctl;
 }
 
 static int sugov_init(struct cpufreq_policy *policy)
@@ -1301,30 +1521,51 @@ static int sugov_init(struct cpufreq_policy *policy)
 	if (cpumask_test_cpu(sg_policy->policy->cpu, cpu_lp_mask)) {
 		tunables->up_rate_limit_us = 1000;
 		tunables->down_rate_limit_us = 1000;
-		tunables->efficient_freq = default_efficient_freq_lp;
-    		tunables->nefficient_freq = ARRAY_SIZE(default_efficient_freq_lp);
+		default_adaptive_high_freq_lp;
+    	tunables->nadaptive_high_freq = ARRAY_SIZE(default_adaptive_high_freq_lp);
+		tunables->adaptive_low_freq = default_adaptive_low_freq_lp;
+    	tunables->nadaptive_low_freq = ARRAY_SIZE(default_adaptive_low_freq_lp);
 		tunables->hispeed_load = DEFAULT_HISPEED_LOAD_LP;
 		tunables->hispeed_freq = default_hispeed_freq_lp;
 		tunables->up_delay = default_up_delay_lp;
+		tunables->down_delay = default_down_delay_lp;
 		tunables->nup_delay = ARRAY_SIZE(default_up_delay_lp);
+		tunables->ndown_delay = ARRAY_SIZE(default_down_delay_lp);
+		tunables->do_limit_up_freq = true;
+		tunables->do_limit_down_freq = false;
+		tunables->limit_freq_userspace_ctl = false;
 	} else if (cpumask_test_cpu(sg_policy->policy->cpu, cpu_perf_mask)) {
 		tunables->up_rate_limit_us = 1000;
 		tunables->down_rate_limit_us = 2000;
-		tunables->efficient_freq = default_efficient_freq_hp;
-    		tunables->nefficient_freq = ARRAY_SIZE(default_efficient_freq_hp);
+		tunables->adaptive_high_freq = default_adaptive_high_freq_hp;
+    	tunables->nadaptive_high_freq = ARRAY_SIZE(default_adaptive_high_freq_hp);
+		tunables->adaptive_low_freq = default_adaptive_low_freq_hp;
+    	tunables->nadaptive_low_freq = ARRAY_SIZE(default_adaptive_low_freq_hp);
 		tunables->hispeed_load = DEFAULT_HISPEED_LOAD_HP;
 		tunables->hispeed_freq = default_hispeed_freq_hp;
 		tunables->up_delay = default_up_delay_hp;
+		tunables->down_delay = default_down_delay_hp;
 		tunables->nup_delay = ARRAY_SIZE(default_up_delay_hp);
+		tunables->ndown_delay = ARRAY_SIZE(default_down_delay_hp);
+		tunables->do_limit_up_freq = true;
+		tunables->do_limit_down_freq = false;
+		tunables->limit_freq_userspace_ctl = false;
 	} else {
 		tunables->up_rate_limit_us = 16000;
-    		tunables->down_rate_limit_us = 4000;
-		tunables->efficient_freq = default_efficient_freq_pr;
-    		tunables->nefficient_freq = ARRAY_SIZE(default_efficient_freq_pr);
+    	tunables->down_rate_limit_us = 4000;
+		tunables->adaptive_high_freq = default_adaptive_high_freq_pr;
+    	tunables->nadaptive_high_freq = ARRAY_SIZE(default_adaptive_high_freq_pr);
+		tunables->adaptive_low_freq = default_adaptive_low_freq_pr;
+    	tunables->nadaptive_low_freq = ARRAY_SIZE(default_adaptive_low_freq_pr);
 		tunables->hispeed_load = DEFAULT_HISPEED_LOAD_PR;
 		tunables->hispeed_freq = default_hispeed_freq_pr;
 		tunables->up_delay = default_up_delay_pr;
+		tunables->down_delay = default_down_delay_pr;
 		tunables->nup_delay = ARRAY_SIZE(default_up_delay_pr);
+		tunables->ndown_delay = ARRAY_SIZE(default_down_delay_pr);
+		tunables->do_limit_up_freq = true;
+		tunables->do_limit_down_freq = false;
+		tunables->limit_freq_userspace_ctl = false;
 	}
 
 
